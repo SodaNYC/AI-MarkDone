@@ -150,7 +150,7 @@ flowchart LR
 
 `ConversationContentSourceV1` remains the stable content interface. The route
 Adapter owns generic route-token identity. The Host Adapter owns selectors,
-official-action readiness, streaming state and rendered semantic carriers.
+semantic identity, streaming state and rendered semantic carriers.
 `ConversationContentRepository` is the single production owner of tab-local
 conversation pools, projection tokens and snapshots. `assistantMessageId` is
 the stable body key; the outer `data-turn-id-container` is the stable position
@@ -166,7 +166,7 @@ canonical order. Consumers neither read ChatGPT payloads nor create a second
 accumulated pool.
 
 The current-message seam is intentionally parallel to the pool. PageIndex and
-the Host Adapter identify one mounted assistant and its official action row;
+the Host Adapter identify one mounted assistant and its semantic identity;
 one DOM-local snapshot can serve Toolbar, current-message Copy/Reader/Export,
 Selection and Annotation. Repository ingestion may reuse
 the same normalized result, but pool ordering or publication never gates those

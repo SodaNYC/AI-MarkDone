@@ -36,7 +36,7 @@
 > the DOM-only boundary.
 >
 > `pending-surface` is mounted host geometry, not accumulated content. A
-> non-streaming message with an official action row can mount its toolbar and
+> non-streaming message with stable assistant identity and non-empty content can mount its toolbar and
 > serve current-message Copy/Reader/Export or selection/annotation from live DOM
 > before Repository publication. It does not enter Directory or multi-message
 > output until its stable ID is admitted into proven pool order. The shared
@@ -196,7 +196,7 @@
   - `ChatGPTConversationHostMonitor` 只订阅唯一 `ChatGPTPageIndex` observer。普通启动和 `?message=` 触发都只捕获当前已挂载且具备非空 assistant DOM、`data-message-id`、已连接官方复制 action row、且不在生成状态的消息。不会为了补全历史逐条滚动页面；缺少官方导航或正文时保持 partial/get，不轮询、不建立第二 source。
   - 每条首次获得或真实变化的消息只 clone 当前 user/assistant 根一次，经既有 Adapter 规范化并各转换一次 Markdown。完整 user/assistant pair 成功编译后，同一稳定 assistant ID 的纯结构虚拟化重挂只更新 mounted 顺序与 host surface，不重复 clone/compile；content/identity mutation、late user-body hydration、generation completion、页面生命周期重扫仍重读。assistant-only capture 因后续可能恢复 user prompt，不进入这项跳过条件。user prompt 是 best-effort，可为空或未挂载；assistant ID 与非空正文是最低准入条件。公式/代码不做预扫描，编译器不做第二次全文语义签名比对，只保留基础节点、输入、输出和执行时间预算。
   - Repository 按 `assistantMessageId` 维护一个共享正文 Map，同时保留 provisional GET source order 与最终 DOM `data-turn-id-container` slot 骨架：GET order 只用于初始可用投影，DOM identity overlap 后成为最终顺序 authority；冲突或不可证明重排整批拒绝。正文按所属 `hostSlotId` 原位填充，同 ID 同 Markdown 不发布，DOM body 覆盖 GET body，late user/assistant body 按原绑定更新。公共 V1 只投影已获得正文并重新稠密化 ordinal，空槽增长本身不改变 `contentToken`。`conversation-turn-N` 只属于宿主当前状态，不进入排序；DOM 虚拟化移除不删槽位或正文。内部 `Map<conversationKey, ConversationPool>` 支持 SPA A→B→A 恢复，刷新页面后清空。普通 DOM 快照为 `partial`，GET seed 为 `get`；当前 runtime 不通过自动全量 DOM sweep 发布 `complete`，新槽位按是否仍有有效 GET seed 降回 `get` 或 `partial`。
-  - 当前消息 Toolbar、word count、whole-message Copy、Reader fallback 与单消息 Export fallback 在用户动作时读取对应已挂载 DOM，不等待 Repository。跨消息 Reader、Save Messages、Directory 和后续目录能力仍消费 `ConversationContentSourceV1` 有序池；书签提交继续要求 canonical identity 与已证明 position。公式点击复制及 PNG/SVG/MathML 直接使用公式 DOM 与 parser Adapter。
+  - 当前消息 Toolbar、word count、whole-message Copy、Reader fallback 与单消息 Export fallback 在用户动作时读取对应已挂载 DOM，不等待 Repository。若当前 ChatGPT turn 尚未进入共享池，Save Messages 仅导出该明确选中的 mounted turn，不推断它与池内其它 turn 的顺序；跨消息 Reader、Save Messages、Directory 和后续目录能力仍消费 `ConversationContentSourceV1` 有序池。书签提交继续要求 canonical identity 与已证明 position。公式点击复制及 PNG/SVG/MathML 直接使用公式 DOM 与 parser Adapter。
   - `src/contracts/semanticContent.ts` + `src/services/semantic-content/SemanticContent.ts` 是 provider-neutral Semantic Content Module：输入 canonical Markdown、revision、coverage 与 provenance，输出 AI-MarkDone 自有不可变节点、UTF-16 半开 source spans、plain text、Reader units/outline 与 canonical/fragment projections。unified/remark 只属于实现；DOM、Range、browser global、platform id、host selector、clipboard 与 UI 不进入该 Module。
   - `ContentSurfaceAdapter` 只在拖选阶段定位同一非流式 assistant message 的原生 Range。复制或注释动作发生时，`PageMarkdownSelectionResolver` 优先使用可用的 canonical `SurfaceProjection`；若池尚未收录、token 已变化或缓存正文不可用，则从仍连接的 owning message DOM 构建当前 Markdown。跨消息、detached 或 streaming selection 仍 fail closed；拖选期间不编译 Markdown。
   - Chrome MV3 / Firefox MV2 Manifest 在 ChatGPT 页面以 document_start 注入 bridge bootstrap，并通过 web-accessible resource 加载 bridge；Safari 不注入该 bridge。Bridge 只包装宿主 `fetch` 的观察路径，读取成功 same-origin JSON GET 的受限 clone，不读取 Cookie、Token、Storage 或认证 header，不观察 POST/SSE，也不构造任何 conversation 请求。

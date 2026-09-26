@@ -4,6 +4,7 @@ import { ChatGPTAdapter } from '@/drivers/content/adapters/sites/chatgpt';
 import { DOMContentSurfaceAdapter } from '@/drivers/content/adapters/ContentSurfaceAdapter';
 import { ChatGPTConversationContentRuntime } from '@/runtimes/content/ChatGPTConversationContentRuntime';
 import { projectSurfaceSelectionToMarkdown } from '@/services/semantic-content/SurfaceProjection';
+import { MessageToolbarOrchestrator } from '@/ui/content/controllers/MessageToolbarOrchestrator';
 
 function roundHtml(index: number, answer: string, options: { action?: boolean; user?: boolean } = {}): string {
     const action = options.action ?? true;
@@ -206,14 +207,14 @@ describe('ChatGPT DOM content discovery lifecycle', () => {
         }
     });
 
-    it('waits without a timeout until the official action row appears', async () => {
+    it('materializes completed content before the official action row appears', async () => {
         document.querySelector('main')!.innerHTML = roundHtml(1, 'Slow answer', { action: false });
         const harness = createRuntime('slow-conversation');
 
         try {
             harness.runtime.init();
             await vi.advanceTimersByTimeAsync(60_000);
-            expect(harness.runtime.source.read().snapshot).toBeNull();
+            expect(harness.runtime.source.read().snapshot?.turns[0]?.assistantMarkdown).toBe('Slow answer');
 
             document.querySelector('[data-turn="assistant"]')!.insertAdjacentHTML(
                 'beforeend',
@@ -242,6 +243,72 @@ describe('ChatGPT DOM content discovery lifecycle', () => {
 
             expect(harness.runtime.source.read().snapshot?.turns[0]?.assistantMarkdown).toBe('Generated answer');
         } finally {
+            harness.dispose();
+        }
+    });
+
+    it('mounts a toolbar for a dynamically completed semantic assistant turn without reinitializing', async () => {
+        const main = document.querySelector('main')!;
+        main.innerHTML = `
+            <div data-turn-key="slot-1">
+                <div data-content-search-turn-key="fallback-turn-1">
+                    <div data-content-search-unit-key="fallback-turn-1:0:user">
+                        <div data-user-message-bubble>Question 1</div>
+                    </div>
+                    <div data-content-search-unit-key="fallback-turn-1:2:assistant">
+                        <div data-chatgpt-selection-message-id="assistant-1">
+                            <div data-markdown-text-style="assistant-message"><p>Answer 1</p></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        const harness = createRuntime('semantic-toolbar-lifecycle');
+        const orchestrator = new MessageToolbarOrchestrator(harness.adapter, {
+            readerPanel: { setTheme() {}, show: async () => undefined } as any,
+            conversationContentSource: harness.runtime.source,
+            conversationMaterialization: harness.runtime.materialization,
+            conversationSurface: harness.runtime.surface,
+        });
+
+        try {
+            harness.runtime.init();
+            orchestrator.init();
+            await settle();
+            expect(document.querySelectorAll('.aimd-message-toolbar-host')).toHaveLength(1);
+
+            main.insertAdjacentHTML('beforeend', `
+                <div data-turn-key="slot-2">
+                    <div data-content-search-turn-key="fallback-turn-2">
+                        <div data-content-search-unit-key="fallback-turn-2:0:user">
+                            <div data-user-message-bubble>Question 2</div>
+                        </div>
+                        <div data-content-search-unit-key="fallback-turn-2:2:assistant">
+                            <div class="group flex min-w-0 flex-col">
+                                <div data-markdown-text-style="assistant-message"><p>Streaming answer</p></div>
+                            </div>
+                            <button data-testid="stop-button">Stop</button>
+                        </div>
+                    </div>
+                </div>
+            `);
+            await settle();
+            expect(document.querySelectorAll('.aimd-message-toolbar-host')).toHaveLength(1);
+
+            const assistantUnit = main.querySelector<HTMLElement>('[data-content-search-unit-key="fallback-turn-2:2:assistant"]')!;
+            assistantUnit.querySelector('[data-testid="stop-button"]')?.remove();
+            await settle();
+            assistantUnit.querySelector<HTMLElement>('.group')!
+                .setAttribute('data-chatgpt-selection-message-id', 'assistant-2');
+            await settle(500);
+
+            expect(harness.runtime.source.read().snapshot?.turns.map((turn) => turn.identity.assistantMessageId))
+                .toContain('assistant-2');
+            const latestToolbar = [...document.querySelectorAll<HTMLElement>('.aimd-message-toolbar-host')]
+                .filter((host) => host.getAttribute('data-aimd-message-key') === 'chatgpt:id:assistant-2');
+            expect(latestToolbar).toHaveLength(1);
+        } finally {
+            orchestrator.dispose();
             harness.dispose();
         }
     });

@@ -52,6 +52,34 @@ function assistantOnlyHtml(index: number, answer: string): string {
     `;
 }
 
+function semanticRoundHtml(index: number, answer: string): string {
+    return `
+        <div data-turn-key="slot-${index}">
+            <div data-content-search-turn-key="round-${index}">
+                <div data-content-search-unit-key="user-unit-${index}">
+                    <div data-user-message-bubble>Question ${index}</div>
+                </div>
+                <div data-content-search-unit-key="assistant-unit-${index}" data-chatgpt-selection-message-id="assistant-${index}">
+                    <div data-markdown-text-style="assistant-message"><div>${answer}</div></div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function semanticAssistantOnlyHtml(index: number, answer: string): string {
+    return `
+        <div data-turn-key="slot-${index}">
+            <div data-content-search-turn-key="round-${index}">
+                <div data-content-search-unit-key="assistant-unit-${index}"
+                    data-chatgpt-selection-message-id="assistant-${index}">
+                    <div data-markdown-text-style="assistant-message"><div>${answer}</div></div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function compiler(): RenderedContentCompilerV2 {
     return {
         compile: vi.fn(async (request) => {
@@ -140,14 +168,15 @@ describe('ChatGPTConversationHostMonitor DOM readiness', () => {
         }
     });
 
-    it('waits indefinitely for the official action row and reacts to its mutation once', async () => {
+    it('captures a completed message without waiting for an official action row', async () => {
         document.querySelector('main')!.innerHTML = roundHtml(1, 'Delayed answer', false);
         const harness = createHarness('delayed');
 
         try {
             harness.monitor.init();
             await vi.advanceTimersByTimeAsync(30_000);
-            expect(harness.renderedCompiler.compile).not.toHaveBeenCalled();
+            expect(harness.repository.read().snapshot?.turns).toHaveLength(1);
+            expect(harness.renderedCompiler.compile).toHaveBeenCalledTimes(1);
 
             document.querySelector('[data-turn="assistant"]')!.insertAdjacentHTML(
                 'beforeend',
@@ -155,7 +184,7 @@ describe('ChatGPTConversationHostMonitor DOM readiness', () => {
             );
             await settle();
 
-            expect(harness.renderedCompiler.compile).toHaveBeenCalledTimes(1);
+            expect(harness.renderedCompiler.compile).toHaveBeenCalled();
             expect(harness.repository.read().snapshot?.turns).toHaveLength(1);
         } finally {
             harness.dispose();
@@ -200,6 +229,68 @@ describe('ChatGPTConversationHostMonitor DOM readiness', () => {
         }
     });
 
+    it('does not recompile an assistant-only turn during a later structural scan', async () => {
+        const main = document.querySelector('main')!;
+        main.innerHTML = assistantOnlyHtml(1, 'Answer 1');
+        const harness = createHarness('assistant-only-idempotent');
+
+        try {
+            harness.monitor.init();
+            await settle();
+            main.insertAdjacentHTML('beforeend', roundHtml(2, 'Answer 2'));
+            await settle();
+
+            expect(harness.renderedCompiler.compile).toHaveBeenCalledTimes(2);
+            expect(harness.repository.read().snapshot?.turns.map((item) => item.assistantMarkdown)).toEqual([
+                'Answer 1',
+                'Answer 2',
+            ]);
+        } finally {
+            harness.dispose();
+        }
+    });
+
+    it('recaptures a semantic assistant when its user bubble remounts, then clears assistant-only state', async () => {
+        const main = document.querySelector('main')!;
+        main.innerHTML = semanticAssistantOnlyHtml(1, 'Answer 1');
+        const harness = createHarness('semantic-user-remount');
+
+        try {
+            harness.monitor.init();
+            await settle();
+            const initialToken = harness.repository.read().snapshot?.contentToken;
+            expect(harness.repository.read().snapshot?.turns[0]).toMatchObject({
+                userText: '',
+                assistantMarkdown: 'Answer 1',
+                identity: { userMessageId: null, assistantMessageId: 'assistant-1' },
+            });
+
+            main.querySelector('[data-content-search-turn-key]')!.insertAdjacentHTML('afterbegin', `
+                <div data-content-search-unit-key="user-unit-1">
+                    <div data-user-message-bubble>Question 1</div>
+                </div>
+            `);
+            await settle();
+
+            expect(harness.renderedCompiler.compile).toHaveBeenCalledTimes(2);
+            expect(harness.repository.read().snapshot?.turns[0]).toMatchObject({
+                userText: 'Question 1',
+                assistantMarkdown: 'Answer 1',
+                identity: { userMessageId: null, assistantMessageId: 'assistant-1' },
+            });
+            expect(harness.repository.read().snapshot?.contentToken).not.toBe(initialToken);
+
+            main.insertAdjacentHTML('beforeend', semanticRoundHtml(2, 'Answer 2'));
+            await settle();
+
+            expect(harness.renderedCompiler.compile).toHaveBeenCalledTimes(3);
+            expect(harness.repository.read().snapshot?.turns[0]?.userText).toBe('Question 1');
+            expect(harness.repository.read().snapshot?.turns[0]?.identity.assistantMessageId).toBe('assistant-1');
+        } finally {
+            harness.dispose();
+        }
+    });
+
     it('adds a later message and retains a virtualized earlier message', async () => {
         const main = document.querySelector('main')!;
         main.innerHTML = roundHtml(1, 'Answer 1');
@@ -218,6 +309,50 @@ describe('ChatGPTConversationHostMonitor DOM readiness', () => {
                 'Answer 1',
                 'Answer 2',
             ]);
+        } finally {
+            harness.dispose();
+        }
+    });
+
+    it('discovers a dynamically hydrated semantic turn after streaming completes without reinitializing', async () => {
+        const main = document.querySelector('main')!;
+        main.innerHTML = semanticRoundHtml(1, 'Initial answer');
+        const harness = createHarness('semantic-hydration');
+
+        try {
+            harness.monitor.init();
+            await settle();
+            expect(harness.repository.read().snapshot?.turns).toHaveLength(1);
+
+            main.insertAdjacentHTML('beforeend', `
+                <div data-turn-key="slot-2">
+                    <div data-content-search-turn-key="round-2">
+                        <div data-content-search-unit-key="user-unit-2">
+                            <div data-user-message-bubble>Question 2</div>
+                        </div>
+                        <div data-content-search-unit-key="assistant-unit-2">
+                            <div data-markdown-text-style="assistant-message">
+                                <div>Streaming answer</div>
+                            </div>
+                            <button data-testid="stop-button">Stop</button>
+                        </div>
+                    </div>
+                </div>
+            `);
+            await settle();
+            expect(harness.repository.read().snapshot?.turns).toHaveLength(1);
+
+            const assistantUnit = main.querySelector<HTMLElement>('[data-content-search-unit-key="assistant-unit-2"]');
+            if (!assistantUnit) throw new Error('semantic assistant unit is missing');
+            assistantUnit.setAttribute('data-chatgpt-selection-message-id', 'assistant-2');
+            assistantUnit.querySelector('[data-testid="stop-button"]')?.remove();
+            await settle();
+
+            expect(harness.repository.read().snapshot?.turns).toHaveLength(2);
+            expect(harness.repository.read().snapshot?.turns[1]).toMatchObject({
+                assistantMarkdown: 'Streaming answer',
+                identity: { assistantMessageId: 'assistant-2' },
+            });
         } finally {
             harness.dispose();
         }

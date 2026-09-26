@@ -20,6 +20,7 @@ import {
 } from './domConversationDiscovery';
 import type { ChatGPTHostObservationBatch, ChatGPTPageIndex } from './ChatGPTPageIndex';
 
+
 export type ChatGPTConversationHostMonitorOptions = Readonly<{
     adapter: SiteAdapter;
     index: ChatGPTPageIndex;
@@ -34,10 +35,9 @@ const DEFAULT_SETTLE_DELAY_MS = 400;
 /**
  * Lightweight DOM capture coordinator backed by the shared ChatGPTPageIndex.
  *
- * The official action row is the readiness signal. Mutations only dirty IDs;
- * one page-level debounce scans the mounted rounds and compiles each eligible
- * body once. Missing readiness remains pending until another real host signal
- * or an explicit page-lifecycle scan arrives.
+ * Semantic assistant identity, completed generation state, and non-empty
+ * content establish readiness. Mutations only dirty IDs; one page-level
+ * debounce scans the mounted rounds and compiles each eligible body once.
  */
 export class ChatGPTConversationHostMonitor {
     private readonly compiler: RenderedContentCompilerPortV2 | null;
@@ -45,6 +45,7 @@ export class ChatGPTConversationHostMonitor {
     private readonly elementTokens = new WeakMap<HTMLElement, string>();
     private readonly dirtyAssistantIds = new Set<string>();
     private readonly capturedAssistantIdsByDocumentKey = new Map<string, Set<string>>();
+    private readonly assistantOnlyCapturedIdsByDocumentKey = new Map<string, Set<string>>();
     private readonly compileRejectionCounts = new Map<string, number>();
     private unsubscribe: (() => void) | null = null;
     private settleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -129,6 +130,7 @@ export class ChatGPTConversationHostMonitor {
         this.captureRequested = false;
         this.dirtyAssistantIds.clear();
         this.capturedAssistantIdsByDocumentKey.clear();
+        this.assistantOnlyCapturedIdsByDocumentKey.clear();
         this.globalDirty = false;
         this.lastDocument = null;
         for (const resolve of this.flushWaiters) resolve();
@@ -137,6 +139,7 @@ export class ChatGPTConversationHostMonitor {
 
     private observe(batch: ChatGPTHostObservationBatch): void {
         if (this.disposed || batch.kinds.every((kind) => kind === 'surface')) return;
+
         this.options.repository.bindCurrentDocument();
         if (batch.surfaceRebased || batch.assistantMessageIds.length === 0) this.globalDirty = true;
         const forceKnownCapture = batch.kinds.includes('content')
@@ -145,11 +148,19 @@ export class ChatGPTConversationHostMonitor {
         const completedIds = new Set(batch.generationCompletedAssistantMessageIds);
         for (const assistantMessageId of batch.assistantMessageIds) {
             const normalized = assistantMessageId.trim();
+            const regainedUserPrompt = normalized
+                && batch.kinds.includes('structure')
+                && this.wasCapturedAssistantOnly(normalized)
+                && this.options.index.getSnapshot().some((round) => {
+                    const identity = resolveChatGPTDomRoundProjectionIdentity(round);
+                    return identity?.assistantMessageId === normalized && round.source !== 'assistant-only';
+                });
             if (
                 normalized
                 && (
                     forceKnownCapture
                     || completedIds.has(normalized)
+                    || regainedUserPrompt
                     || !this.wasCapturedForCurrentDocument(normalized)
                 )
             ) {
@@ -212,18 +223,19 @@ export class ChatGPTConversationHostMonitor {
             const hostSlotId = resolveChatGPTDomRoundHostSlotId(round, hostSlots);
             if (!hostSlotId) continue;
             const shouldCapture = captureAll || dirtyIds.has(assistantMessageId);
+
             if (!shouldCapture) continue;
 
-            const officialActionRow = this.options.adapter.getToolbarAnchorElement(round.assistantMessageEl);
             if (
                 round.isStreaming
-                || !officialActionRow?.isConnected
                 || !round.assistantContentRootEl?.isConnected
                 || !round.assistantContentRootEl.textContent?.trim()
             ) {
                 this.dirtyAssistantIds.add(assistantMessageId);
+
                 continue;
             }
+
 
             const observation = await this.compileRound(
                 round,
@@ -242,14 +254,17 @@ export class ChatGPTConversationHostMonitor {
             }
             if (!observation) {
                 this.dirtyAssistantIds.add(assistantMessageId);
+
                 continue;
             }
             observations.push(observation);
             successfulIds.add(assistantMessageId);
-            // An assistant-only capture can later regain its virtualized user
-            // prompt, so only complete turn pairs are safe to skip on remount.
-            if (observation.turn.identity.userMessageId) {
-                this.rememberCaptured(documentKey, assistantMessageId);
+
+            this.rememberCaptured(documentKey, assistantMessageId);
+            if (round.source === 'assistant-only') {
+                this.rememberAssistantOnlyCapture(documentKey, assistantMessageId);
+            } else {
+                this.forgetAssistantOnlyCapture(documentKey, assistantMessageId);
             }
         }
 
@@ -272,6 +287,26 @@ export class ChatGPTConversationHostMonitor {
             this.capturedAssistantIdsByDocumentKey.set(documentKey, capturedIds);
         }
         capturedIds.add(assistantMessageId);
+    }
+
+    private wasCapturedAssistantOnly(assistantMessageId: string): boolean {
+        const documentKey = this.options.resolveDocument()?.key;
+        return Boolean(documentKey && this.assistantOnlyCapturedIdsByDocumentKey.get(documentKey)?.has(assistantMessageId));
+    }
+
+    private rememberAssistantOnlyCapture(documentKey: string | null, assistantMessageId: string): void {
+        if (!documentKey) return;
+        let capturedIds = this.assistantOnlyCapturedIdsByDocumentKey.get(documentKey);
+        if (!capturedIds) {
+            capturedIds = new Set<string>();
+            this.assistantOnlyCapturedIdsByDocumentKey.set(documentKey, capturedIds);
+        }
+        capturedIds.add(assistantMessageId);
+    }
+
+    private forgetAssistantOnlyCapture(documentKey: string | null, assistantMessageId: string): void {
+        if (!documentKey) return;
+        this.assistantOnlyCapturedIdsByDocumentKey.get(documentKey)?.delete(assistantMessageId);
     }
 
     private async compileRound(

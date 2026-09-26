@@ -153,6 +153,67 @@ describe('ConversationContentRepository persistent host slots', () => {
         expect(repository.read().snapshot?.contentToken).toBe(stableToken);
     });
 
+    it('rejects partial-overlap windows that do not prove the order of unseen slots', () => {
+        const repository = new ConversationContentRepository({ resolveDocument: () => documentRef('virtualized-overlap') });
+        const initialSlots = ['slot-a', 'slot-b', 'slot-c', 'slot-d', 'slot-e'];
+        repository.ingestHostBatch([
+            observation(1, 'slot-a'),
+            observation(2, 'slot-b'),
+            observation(3, 'slot-c'),
+            observation(4, 'slot-d'),
+        ], initialSlots);
+        const stableToken = repository.read().snapshot?.contentToken;
+
+        repository.ingestHostBatch([
+            observation(5, 'slot-x'),
+            observation(3, 'slot-c'),
+            observation(6, 'slot-y'),
+            observation(7, 'slot-z'),
+            observation(8, 'slot-w'),
+            observation(9, 'slot-v'),
+        ], ['slot-x', 'slot-c', 'slot-y', 'slot-z', 'slot-w', 'slot-v']);
+
+        expect(ids(repository)).toEqual(['assistant-1', 'assistant-2', 'assistant-3', 'assistant-4']);
+        expect(repository.read().snapshot?.contentToken).toBe(stableToken);
+    });
+
+    it('merges an unambiguous sliding window that overlaps at its boundary', () => {
+        const repository = new ConversationContentRepository({ resolveDocument: () => documentRef('boundary-overlap') });
+        repository.ingestHostBatch([
+            observation(1, 'slot-a'),
+            observation(2, 'slot-b'),
+            observation(3, 'slot-c'),
+        ], ['slot-a', 'slot-b', 'slot-c']);
+
+        repository.ingestHostBatch([
+            observation(2, 'slot-b'),
+            observation(3, 'slot-c'),
+            observation(4, 'slot-d'),
+        ], ['slot-b', 'slot-c', 'slot-d']);
+
+        expect(ids(repository)).toEqual(['assistant-1', 'assistant-2', 'assistant-3', 'assistant-4']);
+        expect(repository.readTurn({
+            documentKey: documentRef('boundary-overlap').key,
+            turnId: 'turn-4',
+            userMessageId: 'user-4',
+            assistantMessageId: 'assistant-4',
+        })).toMatchObject({
+            kind: 'ready',
+            turn: { assistantMarkdown: 'Answer 4' },
+        });
+    });
+
+    it('rejects disjoint host windows whose relative chronology cannot be established', () => {
+        const repository = new ConversationContentRepository({ resolveDocument: () => documentRef('disjoint-window') });
+        repository.ingestHostBatch([observation(1, 'slot-a')], ['slot-a', 'slot-b']);
+        const stableToken = repository.read().snapshot?.contentToken;
+
+        repository.ingestHostBatch([observation(2, 'slot-x')], ['slot-x', 'slot-y']);
+
+        expect(ids(repository)).toEqual(['assistant-1']);
+        expect(repository.read().snapshot?.contentToken).toBe(stableToken);
+    });
+
     it('rejects conflicting assistant-to-slot bindings without changing the snapshot', () => {
         const repository = new ConversationContentRepository({ resolveDocument: () => documentRef('binding-conflict') });
         repository.ingestHostBatch([observation(1)], ['assistant-slot-1', 'assistant-slot-2']);

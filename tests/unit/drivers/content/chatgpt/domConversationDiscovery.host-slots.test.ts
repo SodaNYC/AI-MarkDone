@@ -63,4 +63,70 @@ describe('ChatGPT persistent host-slot seam', () => {
 
         expect(resolveChatGPTDomRoundHostSlotId(round!, slots)).toBe('assistant-slot-1');
     });
+
+    it('discovers a current ChatGPT round when only its assistant has selection identity', () => {
+        document.querySelector('#host-slots')!.innerHTML = `
+            <div data-turn-key="host-turn-id">
+                <div data-content-search-turn-key>
+                    <div data-content-search-unit-key="fallback-turn-0:0:user">
+                        <div data-user-message-bubble><span>user placeholder</span></div>
+                    </div>
+                    <div data-content-search-unit-key="fallback-turn-0:1:assistant">
+                        <div data-chatgpt-search-unit-key="assistant-unit"
+                            data-chatgpt-search-message-ids="assistant-message-id assistant-message-id">
+                            <h4 data-conversation-role="assistant"></h4>
+                            <div data-chatgpt-selection-message-id="assistant-message-id">
+                                <div data-markdown-text-style="assistant-message"><p>assistant placeholder</p></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const [round] = collectChatGPTDomRoundRefs(adapter);
+
+        expect(round).toMatchObject({
+            identity: {
+                roundId: 'host-turn-id',
+                userMessageId: null,
+                assistantMessageId: 'assistant-message-id',
+            },
+            source: 'content-search-turn',
+        });
+        expect(round?.assistantContentRootEl?.matches('[data-markdown-text-style="assistant-message"]')).toBe(true);
+        expect(adapter.getToolbarAnchorElement(round!.assistantMessageEl)).toBe(
+            document.querySelector('[data-chatgpt-selection-message-id="assistant-message-id"]'),
+        );
+        const slots = collectChatGPTDomHostSlots(adapter);
+        expect(slots.map((slot) => slot.id)).toEqual(['host-turn-id']);
+        expect(resolveChatGPTDomRoundHostSlotId(round!, slots)).toBe('host-turn-id');
+    });
+
+    it('discovers and projects a semantic assistant-only virtualized turn', () => {
+        document.querySelector('#host-slots')!.innerHTML = `
+            <div data-turn-key="host-turn-id">
+                <div data-content-search-turn-key="round-id">
+                    <div data-content-search-unit-key="assistant-unit-id"
+                        data-chatgpt-selection-message-id="assistant-message-id">
+                        <div data-markdown-text-style="assistant-message"><p>assistant placeholder</p></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const [round] = collectChatGPTDomRoundRefs(adapter);
+        const slots = collectChatGPTDomHostSlots(adapter);
+
+        expect(round).toMatchObject({
+            identity: {
+                roundId: 'host-turn-id',
+                userMessageId: null,
+                assistantMessageId: 'assistant-message-id',
+            },
+            source: 'assistant-only',
+        });
+        expect(round?.assistantContentRootEl?.textContent).toContain('assistant placeholder');
+        expect(resolveChatGPTDomRoundHostSlotId(round!, slots)).toBe('host-turn-id');
+    });
 });

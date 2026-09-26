@@ -14,7 +14,7 @@ export type ChatGPTDomRoundRef = {
     groupEls: HTMLElement[];
     assistantIndex: number;
     isStreaming: boolean;
-    source: 'turn-wrapper' | 'legacy-container' | 'role-scan' | 'assistant-only';
+    source: 'turn-wrapper' | 'content-search-turn' | 'legacy-container' | 'role-scan' | 'assistant-only';
 };
 
 export type ChatGPTDomRoundIdentity = {
@@ -83,6 +83,11 @@ const TURN_ROOT_SELECTOR = '[data-turn-id-container], [data-testid^="conversatio
 const TESTID_TURN_WRAPPER_SELECTOR = '[data-testid^="conversation-turn-"][data-turn]';
 const FALLBACK_TURN_WRAPPER_SELECTOR = 'article[data-turn], section[data-turn]';
 const LEGACY_TURN_CONTAINER_SELECTOR = '[data-turn-id-container]';
+const CONTENT_SEARCH_TURN_SELECTOR = '[data-content-search-turn-key]';
+const CONTENT_SEARCH_HOST_SLOT_SELECTOR = '[data-turn-key]';
+const CONTENT_SEARCH_ASSISTANT_SELECTOR = '[data-markdown-text-style="assistant-message"]';
+const CONTENT_SEARCH_USER_SELECTOR = '[data-user-message-bubble]';
+const SELECTION_MESSAGE_ID_SELECTOR = '[data-chatgpt-selection-message-id]';
 
 function readElementId(element: HTMLElement | null | undefined, attribute: string): string | null {
     const value = element?.getAttribute(attribute)?.trim();
@@ -103,6 +108,13 @@ function readMessageId(...elements: Array<HTMLElement | null | undefined>): stri
         if (id) return id;
     }
     return null;
+}
+
+function readSelectionMessageId(element: HTMLElement | null): string | null {
+    const owner = element?.closest(SELECTION_MESSAGE_ID_SELECTOR);
+    return owner instanceof HTMLElement
+        ? readElementId(owner, 'data-chatgpt-selection-message-id')
+        : null;
 }
 
 function getDiscoveryRoot(adapter: SiteAdapter): ParentNode {
@@ -143,6 +155,11 @@ function listLegacyTurnContainers(root: ParentNode): HTMLElement[] {
 export function collectChatGPTDomTurnSlots(adapter: SiteAdapter): HTMLElement[] {
     const root = getDiscoveryRoot(adapter);
     const containers = listLegacyTurnContainers(root);
+    if (containers.length === 0) {
+        return Array.from(root.querySelectorAll(CONTENT_SEARCH_HOST_SLOT_SELECTOR)).filter(
+            (node): node is HTMLElement => node instanceof HTMLElement && rootContains(root, node),
+        );
+    }
     const groups = new Map<HTMLElement, HTMLElement[]>();
     for (const container of containers) {
         const parent = container.parentElement;
@@ -159,7 +176,8 @@ export function collectChatGPTDomHostSlots(adapter: SiteAdapter): readonly ChatG
     const seen = new Set<string>();
     const slots: ChatGPTDomHostSlotRef[] = [];
     for (const element of collectChatGPTDomTurnSlots(adapter)) {
-        const id = readElementId(element, 'data-turn-id-container');
+        const id = readElementId(element, 'data-turn-id-container')
+            || readElementId(element, 'data-turn-key');
         if (!id || id === 'client-created-root' || seen.has(id)) continue;
         seen.add(id);
         slots.push(Object.freeze({ id, element }));
@@ -416,6 +434,55 @@ function collectTurnWrapperRoundRefs(adapter: SiteAdapter, root: ParentNode): Ch
     return rounds;
 }
 
+function collectContentSearchTurnRoundRefs(adapter: SiteAdapter, root: ParentNode): ChatGPTDomRoundRef[] {
+    const turnWrappers = Array.from(root.querySelectorAll(CONTENT_SEARCH_TURN_SELECTOR)).filter(
+        (node): node is HTMLElement => node instanceof HTMLElement && rootContains(root, node),
+    );
+    const rounds: ChatGPTDomRoundRef[] = [];
+
+    for (const turnWrapper of turnWrappers) {
+        const userMessageEl = turnWrapper.querySelector(CONTENT_SEARCH_USER_SELECTOR);
+        const assistantMessageEl = turnWrapper.querySelector(CONTENT_SEARCH_ASSISTANT_SELECTOR);
+        if (!(assistantMessageEl instanceof HTMLElement)) continue;
+
+        const assistantRootEl = assistantMessageEl.closest('[data-content-search-unit-key]');
+        const hostTurnSlotEl = turnWrapper.closest(CONTENT_SEARCH_HOST_SLOT_SELECTOR);
+        if (!(assistantRootEl instanceof HTMLElement)) continue;
+
+        const assistantMessageId = readSelectionMessageId(assistantMessageEl);
+        if (!assistantMessageId) continue;
+
+        const hasUserMessage = userMessageEl instanceof HTMLElement;
+        const userRootEl = hasUserMessage
+            ? userMessageEl.closest('[data-content-search-unit-key]')
+            : null;
+        const hasUserRoot = userRootEl instanceof HTMLElement;
+        const id = assistantMessageId;
+        rounds.push({
+            id,
+            identity: {
+                roundId: readElementId(hostTurnSlotEl instanceof HTMLElement ? hostTurnSlotEl : null, 'data-turn-key'),
+                userMessageId: null,
+                assistantMessageId,
+                assistantTurnId: null,
+            },
+            userRootEl: hasUserRoot ? userRootEl : assistantRootEl,
+            userMessageEl: hasUserMessage ? userMessageEl : assistantMessageEl,
+            anchorEl: turnWrapper,
+            jumpAnchorEl: hasUserRoot ? userRootEl : assistantRootEl,
+            assistantRootEl,
+            assistantMessageEl,
+            assistantContentRootEl: findAssistantContentRoot(adapter, assistantMessageEl),
+            groupEls: [turnWrapper],
+            assistantIndex: rounds.length,
+            isStreaming: adapter.isStreamingMessage(assistantMessageEl),
+            source: hasUserRoot ? 'content-search-turn' : 'assistant-only',
+        });
+    }
+
+    return rounds;
+}
+
 function collectLegacyContainerRoundRefs(adapter: SiteAdapter, root: ParentNode): ChatGPTDomRoundRef[] {
     const containers = listLegacyTurnContainers(root);
     const rounds: ChatGPTDomRoundRef[] = [];
@@ -582,6 +649,8 @@ function collectRoleRoundRefs(adapter: SiteAdapter, root: ParentNode): ChatGPTDo
 function roundCandidateScore(round: ChatGPTDomRoundRef): number {
     const sourceScore = round.source === 'turn-wrapper'
         ? 30
+        : round.source === 'content-search-turn'
+            ? 30
         : round.source === 'legacy-container'
             ? 20
             : round.source === 'role-scan'
@@ -659,6 +728,7 @@ function discoverChatGPTDomRoundRefs(adapter: SiteAdapter): ChatGPTDomRoundRef[]
     // assistant surface.
     return mergeChatGPTDomRoundRefs([
         ...turnWrapperRounds,
+        ...collectContentSearchTurnRoundRefs(adapter, root),
         ...collectLegacyContainerRoundRefs(adapter, root),
         ...collectRoleRoundRefs(adapter, root),
     ]);
