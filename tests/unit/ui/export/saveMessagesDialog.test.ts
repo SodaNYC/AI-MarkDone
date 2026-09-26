@@ -277,7 +277,7 @@ describe('SaveMessagesDialog', () => {
         expect(document.getElementById('aimd-save-messages-dialog-host')).toBeTruthy();
     });
 
-    it('does not replace the shared ChatGPT pool with the clicked message when the pool is empty', async () => {
+    it('exports the exact mounted ChatGPT message when its slot is outside the shared pool', async () => {
         await setLocale('en');
         const adapter = { getPlatformId: () => 'chatgpt' } as any;
         const conversationContentSource = { read: vi.fn() } as any;
@@ -293,9 +293,14 @@ describe('SaveMessagesDialog', () => {
             conversationContentSource,
             startMessageElement: document.createElement('article'),
             currentReaderItem: { id: 'clicked-only', userPrompt: 'clicked', content: 'clicked answer' },
-        })).resolves.toBe(false);
+        })).resolves.toBe(true);
 
-        expect(document.getElementById('aimd-save-messages-dialog-host')).toBeNull();
+        const chips = document.getElementById('aimd-save-messages-dialog-host')!.shadowRoot!
+            .querySelectorAll('.message-chip');
+        expect(chips).toHaveLength(1);
+        expect(readerItemsToChatTurns).toHaveBeenLastCalledWith([
+            { id: 'clicked-only', userPrompt: 'clicked', content: 'clicked answer' },
+        ]);
     });
 
     it('uses an image icon for PNG and shows progress while PNG export is running', async () => {

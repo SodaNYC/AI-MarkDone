@@ -153,7 +153,7 @@ describe('ConversationContentRepository persistent host slots', () => {
         expect(repository.read().snapshot?.contentToken).toBe(stableToken);
     });
 
-    it('merges virtualized windows with partial overlap while preserving both observed orders', () => {
+    it('rejects partial-overlap windows that do not prove the order of unseen slots', () => {
         const repository = new ConversationContentRepository({ resolveDocument: () => documentRef('virtualized-overlap') });
         const initialSlots = ['slot-a', 'slot-b', 'slot-c', 'slot-d', 'slot-e'];
         repository.ingestHostBatch([
@@ -162,6 +162,7 @@ describe('ConversationContentRepository persistent host slots', () => {
             observation(3, 'slot-c'),
             observation(4, 'slot-d'),
         ], initialSlots);
+        const stableToken = repository.read().snapshot?.contentToken;
 
         repository.ingestHostBatch([
             observation(5, 'slot-x'),
@@ -172,27 +173,33 @@ describe('ConversationContentRepository persistent host slots', () => {
             observation(9, 'slot-v'),
         ], ['slot-x', 'slot-c', 'slot-y', 'slot-z', 'slot-w', 'slot-v']);
 
-        const projectedIds = ids(repository);
-        expect(projectedIds).toEqual([
-            'assistant-1',
-            'assistant-2',
-            'assistant-5',
-            'assistant-3',
-            'assistant-6',
-            'assistant-7',
-            'assistant-8',
-            'assistant-9',
-            'assistant-4',
-        ]);
-        expect(projectedIds).toContain('assistant-9');
+        expect(ids(repository)).toEqual(['assistant-1', 'assistant-2', 'assistant-3', 'assistant-4']);
+        expect(repository.read().snapshot?.contentToken).toBe(stableToken);
+    });
+
+    it('merges an unambiguous sliding window that overlaps at its boundary', () => {
+        const repository = new ConversationContentRepository({ resolveDocument: () => documentRef('boundary-overlap') });
+        repository.ingestHostBatch([
+            observation(1, 'slot-a'),
+            observation(2, 'slot-b'),
+            observation(3, 'slot-c'),
+        ], ['slot-a', 'slot-b', 'slot-c']);
+
+        repository.ingestHostBatch([
+            observation(2, 'slot-b'),
+            observation(3, 'slot-c'),
+            observation(4, 'slot-d'),
+        ], ['slot-b', 'slot-c', 'slot-d']);
+
+        expect(ids(repository)).toEqual(['assistant-1', 'assistant-2', 'assistant-3', 'assistant-4']);
         expect(repository.readTurn({
-            documentKey: documentRef('virtualized-overlap').key,
-            turnId: 'turn-9',
-            userMessageId: 'user-9',
-            assistantMessageId: 'assistant-9',
+            documentKey: documentRef('boundary-overlap').key,
+            turnId: 'turn-4',
+            userMessageId: 'user-4',
+            assistantMessageId: 'assistant-4',
         })).toMatchObject({
             kind: 'ready',
-            turn: { assistantMarkdown: 'Answer 9' },
+            turn: { assistantMarkdown: 'Answer 4' },
         });
     });
 

@@ -73,7 +73,6 @@ import {
 } from '../../../style/appearance';
 import { targetSurfacePolicy } from '../../../config/targetSurface';
 
-
 type ToolbarRecord = {
     messageKey: string;
     platformId: string;
@@ -85,18 +84,6 @@ type ToolbarRecord = {
     boundAtUrl: string;
     lastDerivedStateKey?: string;
 };
-
-const CHATGPT_MESSAGE_LIFECYCLE_ATTRIBUTES = new Set([
-    'data-chatgpt-selection-message-id',
-    'data-content-search-turn-key',
-    'data-content-search-unit-key',
-    'data-markdown-text-style',
-    'data-message-id',
-    'data-testid',
-    'data-turn-key',
-    'data-user-message-bubble',
-]);
-const GENERATION_CONTROL_SELECTOR = 'button[data-testid="stop-button"], button[data-testid="copy-turn-action-button"]';
 
 type ScanSnapshotItem = {
     messageKey: string;
@@ -295,7 +282,6 @@ export class MessageToolbarOrchestrator {
                 segmentIndexByElement: this.messageSegmentIndexByElement,
             });
             items.set(messageKey, { messageKey, message, anchor, position, pending });
-
         };
 
         for (const entry of frame.obtainedTurns) {
@@ -319,7 +305,6 @@ export class MessageToolbarOrchestrator {
         }
 
         this.messageOrder = this.sortMessagesByDocumentOrder(mountedMessages);
-
         this.reconcileScanSnapshot(items, 'full');
 
         if (this.bookmarksController && canonicalUrl && canonicalUrl !== this.lastChatGptMaterializationUrl) {
@@ -1179,7 +1164,6 @@ export class MessageToolbarOrchestrator {
         this.removeExistingToolbarsInAnchor(params.anchor, host);
         const injected = this.adapter.injectToolbar(params.message, host);
         if (!injected) {
-
             logger.debug('[AI-MarkDone][MessageToolbarOrchestrator] injectToolbar failed');
             toolbar.dispose();
             host.remove();
@@ -1202,7 +1186,6 @@ export class MessageToolbarOrchestrator {
 
         this.refreshBookmarkStateForToolbar(toolbar, params.message, params.position);
         this.refreshWordCountForToolbar(toolbar, params.message, params.pending);
-
         return record;
     }
 
@@ -1349,14 +1332,12 @@ export class MessageToolbarOrchestrator {
             const existing = this.recordsByMessageKey.get(messageKey) || null;
 
             if (!item.anchor) {
-
                 if (existing) this.removeRecord(messageKey);
                 continue;
             }
             const anchor = item.anchor;
 
             if (!existing) {
-
                 const created = this.createToolbarRecord({
                     ...item,
                     anchor,
@@ -1364,8 +1345,6 @@ export class MessageToolbarOrchestrator {
                 if (created) this.recordsByMessageKey.set(messageKey, created);
                 continue;
             }
-
-
 
             existing.message = item.message;
             existing.position = item.position;
@@ -1649,12 +1628,6 @@ export class MessageToolbarOrchestrator {
         }
     }
 
-    private nodeContainsGenerationControl(node: Node): boolean {
-        if (!(node instanceof Element) && !(node instanceof DocumentFragment)) return false;
-        if (node instanceof Element && node.matches(GENERATION_CONTROL_SELECTOR)) return true;
-        return node.querySelector(GENERATION_CONTROL_SELECTOR) !== null;
-    }
-
     private formatCopyPngProgress(event: ImageExportProgressEvent): ImageExportProgressPresentation {
         return presentImageExportProgress(event, (key, substitutions) => (
             substitutions ? t(key, substitutions) : t(key)
@@ -1670,44 +1643,9 @@ export class MessageToolbarOrchestrator {
         let shouldSchedule = false;
 
         for (const mutation of Array.from(mutations)) {
-            const isAttribute = 'type' in mutation && mutation.type === 'attributes';
-            if (isAttribute) {
-                const attributeName = 'attributeName' in mutation ? mutation.attributeName : null;
-                if (!attributeName || !CHATGPT_MESSAGE_LIFECYCLE_ATTRIBUTES.has(attributeName)) continue;
-                const target = mutation.target;
-                if (attributeName === 'data-testid') {
-                    const currentTestId = target instanceof Element ? target.getAttribute('data-testid') : null;
-                    const previousTestId = 'oldValue' in mutation ? mutation.oldValue : null;
-                    if (![currentTestId, previousTestId].some((value) => (
-                        value === 'stop-button' || value === 'copy-turn-action-button'
-                    ))) continue;
-                }
-                const candidates = target ? this.collectMutationMessageCandidates(target) : [];
-                const targetMessage = target ? this.getMessageForMutationTarget(target) : null;
-                const affectedMessages = candidates.length > 0
-                    ? candidates
-                    : targetMessage ? [targetMessage] : [];
-                for (const message of affectedMessages) this.markMessageDirty(message);
-                if (affectedMessages.length > 0) {
-                    shouldSchedule = true;
-                } else if (
-                    attributeName === 'data-testid'
-                    && target instanceof Element
-                ) {
-                    const latestMessage = this.messageOrder[this.messageOrder.length - 1]
-                        ?? this.adapter.getLastMessageElement();
-                    if (latestMessage) {
-                        this.markMessageDirty(latestMessage);
-                        shouldSchedule = true;
-                    }
-                }
-                continue;
-            }
-
             const removedNodes = Array.from(mutation.removedNodes || []);
             const addedNodes = Array.from(mutation.addedNodes || []);
             const changedNodes = [...removedNodes, ...addedNodes];
-            const generationControlChanged = changedNodes.some((node) => this.nodeContainsGenerationControl(node));
             const targetMessage = this.getMessageForMutationTarget(mutation.target);
             const isCharacterData = 'type' in mutation && mutation.type === 'characterData';
             const intentionallyRemovedHosts = new Set<Node>();
@@ -1726,14 +1664,6 @@ export class MessageToolbarOrchestrator {
                 : changedNodes.some((node) => !this.isToolbarManagedHostNode(node));
             if (!hasHostPageChange && externallyRemovedHosts.size === 0) continue;
             if (hasHostPageChange) this.invalidateTurnIndex();
-            if (generationControlChanged && !targetMessage) {
-                const latestMessage = this.messageOrder[this.messageOrder.length - 1]
-                    ?? this.adapter.getLastMessageElement();
-                if (latestMessage) {
-                    this.markMessageDirty(latestMessage);
-                    shouldSchedule = true;
-                }
-            }
             if (isCharacterData) {
                 if (targetMessage) {
                     this.markMessageDirty(targetMessage);
@@ -1799,13 +1729,6 @@ export class MessageToolbarOrchestrator {
         this.observedContainer = nextContainer;
         this.needsFullRescan = true;
         this.observer = new MutationObserver((mutations) => this.handleObservedMutations(mutations));
-        this.observer.observe(nextContainer, {
-            attributes: true,
-            attributeOldValue: true,
-            attributeFilter: Array.from(CHATGPT_MESSAGE_LIFECYCLE_ATTRIBUTES),
-            childList: true,
-            characterData: true,
-            subtree: true,
-        });
+        this.observer.observe(nextContainer, { childList: true, characterData: true, subtree: true });
     }
 }

@@ -133,7 +133,9 @@ export class SaveMessagesDialog {
         );
         const items = content.items.length > 0
             ? content.items
-            : !options?.conversationContentSource && options?.currentReaderItem
+            : options?.currentReaderItem && (
+                !options.conversationContentSource || adapter.getPlatformId() === 'chatgpt'
+            )
                 ? [options.currentReaderItem]
                 : [];
         const startIndex = content.items.length > 0 ? content.startIndex : 0;

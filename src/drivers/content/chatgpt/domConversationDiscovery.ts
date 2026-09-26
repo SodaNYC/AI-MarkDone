@@ -443,16 +443,20 @@ function collectContentSearchTurnRoundRefs(adapter: SiteAdapter, root: ParentNod
     for (const turnWrapper of turnWrappers) {
         const userMessageEl = turnWrapper.querySelector(CONTENT_SEARCH_USER_SELECTOR);
         const assistantMessageEl = turnWrapper.querySelector(CONTENT_SEARCH_ASSISTANT_SELECTOR);
-        if (!(userMessageEl instanceof HTMLElement) || !(assistantMessageEl instanceof HTMLElement)) continue;
+        if (!(assistantMessageEl instanceof HTMLElement)) continue;
 
-        const userRootEl = userMessageEl.closest('[data-content-search-unit-key]');
         const assistantRootEl = assistantMessageEl.closest('[data-content-search-unit-key]');
         const hostTurnSlotEl = turnWrapper.closest(CONTENT_SEARCH_HOST_SLOT_SELECTOR);
-        if (!(userRootEl instanceof HTMLElement) || !(assistantRootEl instanceof HTMLElement)) continue;
+        if (!(assistantRootEl instanceof HTMLElement)) continue;
 
         const assistantMessageId = readSelectionMessageId(assistantMessageEl);
         if (!assistantMessageId) continue;
 
+        const hasUserMessage = userMessageEl instanceof HTMLElement;
+        const userRootEl = hasUserMessage
+            ? userMessageEl.closest('[data-content-search-unit-key]')
+            : null;
+        const hasUserRoot = userRootEl instanceof HTMLElement;
         const id = assistantMessageId;
         rounds.push({
             id,
@@ -462,17 +466,17 @@ function collectContentSearchTurnRoundRefs(adapter: SiteAdapter, root: ParentNod
                 assistantMessageId,
                 assistantTurnId: null,
             },
-            userRootEl,
-            userMessageEl,
+            userRootEl: hasUserRoot ? userRootEl : assistantRootEl,
+            userMessageEl: hasUserMessage ? userMessageEl : assistantMessageEl,
             anchorEl: turnWrapper,
-            jumpAnchorEl: userRootEl,
+            jumpAnchorEl: hasUserRoot ? userRootEl : assistantRootEl,
             assistantRootEl,
             assistantMessageEl,
             assistantContentRootEl: findAssistantContentRoot(adapter, assistantMessageEl),
             groupEls: [turnWrapper],
             assistantIndex: rounds.length,
             isStreaming: adapter.isStreamingMessage(assistantMessageEl),
-            source: 'content-search-turn',
+            source: hasUserRoot ? 'content-search-turn' : 'assistant-only',
         });
     }
 

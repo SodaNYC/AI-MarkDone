@@ -216,6 +216,27 @@ describe('ChatGPTConversationHostMonitor DOM readiness', () => {
         }
     });
 
+    it('does not recompile an assistant-only turn during a later structural scan', async () => {
+        const main = document.querySelector('main')!;
+        main.innerHTML = assistantOnlyHtml(1, 'Answer 1');
+        const harness = createHarness('assistant-only-idempotent');
+
+        try {
+            harness.monitor.init();
+            await settle();
+            main.insertAdjacentHTML('beforeend', roundHtml(2, 'Answer 2'));
+            await settle();
+
+            expect(harness.renderedCompiler.compile).toHaveBeenCalledTimes(2);
+            expect(harness.repository.read().snapshot?.turns.map((item) => item.assistantMarkdown)).toEqual([
+                'Answer 1',
+                'Answer 2',
+            ]);
+        } finally {
+            harness.dispose();
+        }
+    });
+
     it('adds a later message and retains a virtualized earlier message', async () => {
         const main = document.querySelector('main')!;
         main.innerHTML = roundHtml(1, 'Answer 1');

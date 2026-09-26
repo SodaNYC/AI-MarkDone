@@ -102,4 +102,31 @@ describe('ChatGPT persistent host-slot seam', () => {
         expect(slots.map((slot) => slot.id)).toEqual(['host-turn-id']);
         expect(resolveChatGPTDomRoundHostSlotId(round!, slots)).toBe('host-turn-id');
     });
+
+    it('discovers and projects a semantic assistant-only virtualized turn', () => {
+        document.querySelector('#host-slots')!.innerHTML = `
+            <div data-turn-key="host-turn-id">
+                <div data-content-search-turn-key="round-id">
+                    <div data-content-search-unit-key="assistant-unit-id"
+                        data-chatgpt-selection-message-id="assistant-message-id">
+                        <div data-markdown-text-style="assistant-message"><p>assistant placeholder</p></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const [round] = collectChatGPTDomRoundRefs(adapter);
+        const slots = collectChatGPTDomHostSlots(adapter);
+
+        expect(round).toMatchObject({
+            identity: {
+                roundId: 'host-turn-id',
+                userMessageId: null,
+                assistantMessageId: 'assistant-message-id',
+            },
+            source: 'assistant-only',
+        });
+        expect(round?.assistantContentRootEl?.textContent).toContain('assistant placeholder');
+        expect(resolveChatGPTDomRoundHostSlotId(round!, slots)).toBe('host-turn-id');
+    });
 });

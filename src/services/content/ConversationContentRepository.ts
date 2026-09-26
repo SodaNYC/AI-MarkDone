@@ -628,28 +628,34 @@ function reconcileHostSlotOrder(
     const sharedExisting = existingOrder.filter((slotId) => observedSlots.has(slotId));
     if (sharedObserved.length === 0 || !sameStringSequence(sharedExisting, sharedObserved)) return null;
 
-    // Virtualized hosts expose partial windows; merge around shared slots without losing either observed order.
-    const merged = [...existingOrder];
-    const sharedIndexes = sharedObserved.map((slotId) => observed.indexOf(slotId));
-    const firstSharedIndex = sharedIndexes[0];
-    const firstSharedSlot = sharedObserved[0];
-    const prefix = observed.slice(0, firstSharedIndex);
-    if (prefix.length > 0) {
-        merged.splice(merged.indexOf(firstSharedSlot), 0, ...prefix);
+    const existingSegments: string[][] = [];
+    const observedSegments: string[][] = [];
+    let existingCursor = 0;
+    let observedCursor = 0;
+    for (const sharedSlot of sharedObserved) {
+        const existingIndex = existingOrder.indexOf(sharedSlot, existingCursor);
+        const observedIndex = observed.indexOf(sharedSlot, observedCursor);
+        existingSegments.push(existingOrder.slice(existingCursor, existingIndex));
+        observedSegments.push(observed.slice(observedCursor, observedIndex));
+        existingCursor = existingIndex + 1;
+        observedCursor = observedIndex + 1;
     }
+    existingSegments.push(existingOrder.slice(existingCursor));
+    observedSegments.push(observed.slice(observedCursor));
 
-    for (let index = 0; index < sharedObserved.length - 1; index += 1) {
-        const between = observed.slice(sharedIndexes[index] + 1, sharedIndexes[index + 1]);
-        if (between.length === 0) continue;
-        merged.splice(merged.indexOf(sharedObserved[index + 1]), 0, ...between);
-    }
+    // Shared anchors prove only their own relative order. If both windows
+    // contain distinct slots in the same gap, their order is not observable.
+    if (existingSegments.some((segment, index) => (
+        segment.length > 0 && (observedSegments[index]?.length ?? 0) > 0
+    ))) return null;
 
-    const lastSharedIndex = sharedIndexes[sharedIndexes.length - 1];
-    const suffix = observed.slice(lastSharedIndex + 1);
-    if (suffix.length > 0) {
-        const lastSharedSlot = sharedObserved[sharedObserved.length - 1];
-        merged.splice(merged.indexOf(lastSharedSlot) + 1, 0, ...suffix);
+    const merged: string[] = [];
+    for (let index = 0; index < sharedObserved.length; index += 1) {
+        merged.push(...(existingSegments[index]?.length ? existingSegments[index]! : observedSegments[index]!));
+        merged.push(sharedObserved[index]!);
     }
+    const tailIndex = sharedObserved.length;
+    merged.push(...(existingSegments[tailIndex]?.length ? existingSegments[tailIndex]! : observedSegments[tailIndex]!));
     return Object.freeze(merged);
 }
 
