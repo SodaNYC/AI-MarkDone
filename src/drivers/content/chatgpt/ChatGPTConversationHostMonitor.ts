@@ -20,6 +20,7 @@ import {
 } from './domConversationDiscovery';
 import type { ChatGPTHostObservationBatch, ChatGPTPageIndex } from './ChatGPTPageIndex';
 
+
 export type ChatGPTConversationHostMonitorOptions = Readonly<{
     adapter: SiteAdapter;
     index: ChatGPTPageIndex;
@@ -34,10 +35,9 @@ const DEFAULT_SETTLE_DELAY_MS = 400;
 /**
  * Lightweight DOM capture coordinator backed by the shared ChatGPTPageIndex.
  *
- * The official action row is the readiness signal. Mutations only dirty IDs;
- * one page-level debounce scans the mounted rounds and compiles each eligible
- * body once. Missing readiness remains pending until another real host signal
- * or an explicit page-lifecycle scan arrives.
+ * Semantic assistant identity, completed generation state, and non-empty
+ * content establish readiness. Mutations only dirty IDs; one page-level
+ * debounce scans the mounted rounds and compiles each eligible body once.
  */
 export class ChatGPTConversationHostMonitor {
     private readonly compiler: RenderedContentCompilerPortV2 | null;
@@ -137,6 +137,7 @@ export class ChatGPTConversationHostMonitor {
 
     private observe(batch: ChatGPTHostObservationBatch): void {
         if (this.disposed || batch.kinds.every((kind) => kind === 'surface')) return;
+
         this.options.repository.bindCurrentDocument();
         if (batch.surfaceRebased || batch.assistantMessageIds.length === 0) this.globalDirty = true;
         const forceKnownCapture = batch.kinds.includes('content')
@@ -212,18 +213,19 @@ export class ChatGPTConversationHostMonitor {
             const hostSlotId = resolveChatGPTDomRoundHostSlotId(round, hostSlots);
             if (!hostSlotId) continue;
             const shouldCapture = captureAll || dirtyIds.has(assistantMessageId);
+
             if (!shouldCapture) continue;
 
-            const officialActionRow = this.options.adapter.getToolbarAnchorElement(round.assistantMessageEl);
             if (
                 round.isStreaming
-                || !officialActionRow?.isConnected
                 || !round.assistantContentRootEl?.isConnected
                 || !round.assistantContentRootEl.textContent?.trim()
             ) {
                 this.dirtyAssistantIds.add(assistantMessageId);
+
                 continue;
             }
+
 
             const observation = await this.compileRound(
                 round,
@@ -242,10 +244,12 @@ export class ChatGPTConversationHostMonitor {
             }
             if (!observation) {
                 this.dirtyAssistantIds.add(assistantMessageId);
+
                 continue;
             }
             observations.push(observation);
             successfulIds.add(assistantMessageId);
+
             // An assistant-only capture can later regain its virtualized user
             // prompt, so only complete turn pairs are safe to skip on remount.
             if (observation.turn.identity.userMessageId) {

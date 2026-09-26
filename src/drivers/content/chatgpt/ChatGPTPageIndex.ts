@@ -2,6 +2,7 @@ import type { ChatGPTDomRoundRef } from './domConversationDiscovery';
 import { logger } from '../../../core/logger';
 import { AIMD_CONVERSATION_SURFACE_CONSUMER_ATTRIBUTE } from '../../../contracts/conversationSurface';
 
+
 type ChatGPTPageIndexOptions = {
     resolveRoot: () => ParentNode;
     resolveSurfaceRoot?: () => ParentNode;
@@ -31,7 +32,7 @@ export type ChatGPTHostObservationBatch = Readonly<{
     surfaceRebased: boolean;
 }>;
 
-const ROUND_STRUCTURE_SELECTOR = [
+const LEGACY_ROUND_STRUCTURE_SELECTOR = [
     '[data-turn-id-container]',
     '[data-turn="user"]',
     '[data-turn="assistant"]',
@@ -39,12 +40,24 @@ const ROUND_STRUCTURE_SELECTOR = [
     '[data-message-author-role="assistant"]',
     '[data-testid^="conversation-turn-"]',
 ].join(',');
+const SEMANTIC_ROUND_STRUCTURE_SELECTOR = [
+    '[data-turn-key]',
+    '[data-content-search-turn-key]',
+    '[data-user-message-bubble]',
+    '[data-markdown-text-style="assistant-message"]',
+].join(',');
 
 const ROUND_IDENTITY_ATTRIBUTES = new Set([
     'data-message-id',
     'data-turn-id',
     'data-turn',
     'data-message-author-role',
+    'data-chatgpt-selection-message-id',
+    'data-turn-key',
+    'data-content-search-turn-key',
+    'data-content-search-unit-key',
+    'data-markdown-text-style',
+    'data-user-message-bubble',
 ]);
 
 // ChatGPT changes its semantic stop/copy test id when streaming completes.
@@ -73,13 +86,22 @@ function isExtensionOwnedNode(node: Node): boolean {
 function isAssistantContentNode(node: Node): boolean {
     if (isExtensionOwnedNode(node)) return false;
     const element = getElementForOwnershipCheck(node);
-    return Boolean(element?.closest('[data-message-author-role="assistant"]'));
+    return Boolean(element?.closest('[data-message-author-role="assistant"], [data-markdown-text-style="assistant-message"]'));
 }
 
 function isUserContentNode(node: Node): boolean {
     if (isExtensionOwnedNode(node)) return false;
     const element = getElementForOwnershipCheck(node);
-    return Boolean(element?.closest('[data-message-author-role="user"]'));
+    return Boolean(element?.closest('[data-message-author-role="user"], [data-user-message-bubble]'));
+}
+
+function targetMatchesRoundStructure(target: Element): boolean {
+    if (
+        target.matches(LEGACY_ROUND_STRUCTURE_SELECTOR)
+        || target.closest(LEGACY_ROUND_STRUCTURE_SELECTOR) !== null
+    ) return true;
+    return target.matches(SEMANTIC_ROUND_STRUCTURE_SELECTOR)
+        || target.closest(SEMANTIC_ROUND_STRUCTURE_SELECTOR) !== null;
 }
 
 function mutationAffectsHostPage(mutation: MutationRecord): boolean {
@@ -96,14 +118,12 @@ function mutationAffectsHostPage(mutation: MutationRecord): boolean {
         const target = getElementForOwnershipCheck(mutation.target);
         if (!target || !mutation.attributeName) return false;
         if (ROUND_IDENTITY_ATTRIBUTES.has(mutation.attributeName)) {
-            return target.matches(ROUND_STRUCTURE_SELECTOR)
-                || target.closest(ROUND_STRUCTURE_SELECTOR) !== null;
+            return targetMatchesRoundStructure(target);
         }
         if (mutation.attributeName !== 'data-testid') return false;
         const currentTestId = target.getAttribute('data-testid') ?? '';
         const previousTestId = mutation.oldValue ?? '';
-        return target.matches(ROUND_STRUCTURE_SELECTOR)
-            || target.closest(ROUND_STRUCTURE_SELECTOR) !== null
+        return targetMatchesRoundStructure(target)
             || currentTestId === 'stop-button'
             || currentTestId === 'copy-turn-action-button'
             || previousTestId === 'stop-button'
@@ -135,8 +155,13 @@ function mutationRemovesConversationSurfaceConsumer(mutation: MutationRecord): b
 function nodeMayContainRoundStructure(node: Node): boolean {
     if (node.nodeType !== 1 && node.nodeType !== 11) return false;
     const queryable = node as Element | DocumentFragment;
-    if (node.nodeType === 1 && (queryable as Element).matches(ROUND_STRUCTURE_SELECTOR)) return true;
-    return queryable.querySelector(ROUND_STRUCTURE_SELECTOR) !== null;
+    if (node.nodeType === 1) {
+        const element = queryable as Element;
+        if (element.matches(LEGACY_ROUND_STRUCTURE_SELECTOR)) return true;
+        if (element.matches(SEMANTIC_ROUND_STRUCTURE_SELECTOR)) return true;
+    }
+    return queryable.querySelector(LEGACY_ROUND_STRUCTURE_SELECTOR) !== null
+        || queryable.querySelector(SEMANTIC_ROUND_STRUCTURE_SELECTOR) !== null;
 }
 
 function nodeMayContainContentLifecycle(node: Node): boolean {
@@ -183,8 +208,10 @@ export class ChatGPTPageIndex {
     getSnapshot(): ChatGPTDomRoundRef[] {
         this.ensureObservedRoot();
         if (!this.snapshot) {
+
             this.snapshot = this.options.discover();
             this.seedAssistantIdentityOwners(this.snapshot);
+
         }
         return this.snapshot;
     }
@@ -215,6 +242,8 @@ export class ChatGPTPageIndex {
         this.ensureObservedRoot();
         return this.observationRevision;
     }
+
+
 
     dispose(): void {
         this.observer?.disconnect();
@@ -250,6 +279,7 @@ export class ChatGPTPageIndex {
         this.observer = null;
         this.observedRoot = nextRoot;
         this.surfaceRoot = this.options.resolveSurfaceRoot?.() ?? nextRoot;
+
         if (hadRoot) this.invalidate();
         this.advanceSurface(window.location.href, rootChanged);
 
@@ -324,6 +354,7 @@ export class ChatGPTPageIndex {
                     );
                 }
                 this.activeGenerationAssistantIds = nextActive;
+
             }
             this.notifyObservations({
                 revision: this.observationRevision,
@@ -461,13 +492,19 @@ function collectAssistantMessageIds(mutation: MutationRecord): string[] {
     const ids = new Set<string>();
     const collect = (node: Node): void => {
         const element = getElementForOwnershipCheck(node);
-        const message = element?.closest('[data-message-author-role="assistant"]');
-        const directId = message?.getAttribute('data-message-id')?.trim();
+        const message = element?.closest('[data-message-author-role="assistant"], [data-markdown-text-style="assistant-message"]');
+        const directId = message?.getAttribute('data-message-id')?.trim()
+            || message?.closest('[data-chatgpt-selection-message-id]')?.getAttribute('data-chatgpt-selection-message-id')?.trim();
         if (directId) ids.add(directId);
         if (node.nodeType !== 1 && node.nodeType !== 11) return;
         const queryable = node as Element | DocumentFragment;
         queryable.querySelectorAll?.('[data-message-author-role="assistant"][data-message-id]').forEach((candidate) => {
             const id = candidate.getAttribute('data-message-id')?.trim();
+            if (id) ids.add(id);
+        });
+        queryable.querySelectorAll?.('[data-markdown-text-style="assistant-message"]').forEach((candidate) => {
+            const id = candidate.closest('[data-chatgpt-selection-message-id]')
+                ?.getAttribute('data-chatgpt-selection-message-id')?.trim();
             if (id) ids.add(id);
         });
     };

@@ -61,6 +61,9 @@ export class ChatGPTAdapter extends SiteAdapter {
             if (copyBtn.parentElement instanceof HTMLElement) return copyBtn.parentElement;
         }
 
+        const selectionMessageRoot = assistantMessageElement.closest('[data-chatgpt-selection-message-id]');
+        if (selectionMessageRoot instanceof HTMLElement) return selectionMessageRoot;
+
         return null;
     }
 
@@ -106,6 +109,13 @@ export class ChatGPTAdapter extends SiteAdapter {
     }
 
     extractUserPrompt(assistantMessageElement: HTMLElement): string | null {
+        const contentSearchTurn = assistantMessageElement.closest('[data-content-search-turn-key]');
+        const contentSearchUserBubble = contentSearchTurn?.querySelector('[data-user-message-bubble]');
+        if (contentSearchUserBubble instanceof HTMLElement) {
+            const normalized = this.normalizePromptText(contentSearchUserBubble.textContent || '');
+            if (normalized) return normalized;
+        }
+
         const assistantArticle = assistantMessageElement.closest('article') || assistantMessageElement;
         const scope = assistantArticle.parentElement;
         if (scope) {
@@ -154,11 +164,11 @@ export class ChatGPTAdapter extends SiteAdapter {
     getMessageSelector(): string {
         // Prefer the stable assistant message node; `article[data-turn]` has proven to be unstable across ChatGPT UI iterations.
         // Deep Research is the only verified embedded surface that lacks this node and therefore supplies its iframe as the message surface.
-        return `[data-message-author-role="assistant"][data-message-id], ${DEEP_RESEARCH_IFRAME_SELECTOR}`;
+        return `[data-message-author-role="assistant"][data-message-id], [data-markdown-text-style="assistant-message"], ${DEEP_RESEARCH_IFRAME_SELECTOR}`;
     }
 
     getMessageContentSelector(): string {
-        return '.markdown.prose, .markdown.prose.dark\\:prose-invert';
+        return '.markdown.prose, .markdown.prose.dark\\:prose-invert, [data-markdown-text-style="assistant-message"]';
     }
 
     getActionBarSelector(): string {
@@ -172,6 +182,7 @@ export class ChatGPTAdapter extends SiteAdapter {
 
     getTurnRootElement(assistantMessageElement: HTMLElement): HTMLElement | null {
         const selectors = [
+            '[data-content-search-turn-key]',
             '[data-testid^="conversation-turn-"]',
             '[data-turn-id-container]',
             'article[data-turn="assistant"]',
@@ -245,6 +256,10 @@ export class ChatGPTAdapter extends SiteAdapter {
 
         const dataMessageId = element.getAttribute('data-message-id');
         if (dataMessageId) return dataMessageId;
+
+        const selectionMessageId = element.closest('[data-chatgpt-selection-message-id]')
+            ?.getAttribute('data-chatgpt-selection-message-id');
+        if (selectionMessageId) return selectionMessageId;
 
         const dataTestId = element.getAttribute('data-testid');
         if (dataTestId) return dataTestId;

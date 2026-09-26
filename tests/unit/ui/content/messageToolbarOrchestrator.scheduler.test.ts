@@ -8,6 +8,7 @@ const detector: ThemeDetector = {
     getObserveTargets: () => [],
     hasExplicitTheme: () => true,
 };
+const GENERATION_CONTROL_SELECTOR = 'button[data-testid="stop-button"], button[data-testid="copy-turn-action-button"]';
 
 class FakeScheduledToolbarAdapter extends SiteAdapter {
     public streaming = true;
@@ -232,6 +233,105 @@ describe('MessageToolbarOrchestrator scheduler integration', () => {
             expect(incrementalScan).toHaveBeenCalled();
             expect(fullScan).not.toHaveBeenCalled();
             expect(getToolbar()).toBeTruthy();
+        } finally {
+            observer.disconnect();
+            orchestrator.dispose();
+        }
+    });
+
+    it('rescans a semantic assistant when its stable identity is hydrated after insertion', () => {
+        document.body.innerHTML = `
+          <div data-chatgpt-selection-message-id="assistant-1">
+            <div data-markdown-text-style="assistant-message">Initial answer</div>
+          </div>
+        `;
+
+        const adapter = new FakeScheduledToolbarAdapter();
+        adapter.streaming = false;
+        adapter.getMessageSelector = () => '[data-markdown-text-style="assistant-message"]';
+        adapter.getToolbarAnchorElement = (message) => message.closest('[data-chatgpt-selection-message-id]') as HTMLElement | null;
+        adapter.injectToolbar = (message, toolbarHost) => {
+            const anchor = adapter.getToolbarAnchorElement(message);
+            if (!anchor) return false;
+            toolbarHost.setAttribute('data-aimd-role', 'message-toolbar');
+            anchor.appendChild(toolbarHost);
+            return true;
+        };
+        const orchestrator = new MessageToolbarOrchestrator(adapter, {
+            readerPanel: { setTheme() {}, show: async () => undefined } as any,
+        });
+        (orchestrator as any).scanAndInject();
+        const fullScan = vi.spyOn(orchestrator as any, 'buildFullScanSnapshot');
+        const incrementalScan = vi.spyOn(orchestrator as any, 'buildIncrementalSnapshot');
+        const observer = new MutationObserver(() => undefined);
+        observer.observe(document.body, {
+            attributes: true,
+            attributeFilter: [
+                'data-chatgpt-selection-message-id',
+                'data-markdown-text-style',
+            ],
+            childList: true,
+            subtree: true,
+        });
+
+        try {
+            const shell = document.createElement('div');
+            const message = document.createElement('div');
+            message.textContent = 'New answer';
+            shell.appendChild(message);
+            document.body.appendChild(shell);
+            (orchestrator as any).handleObservedMutations(observer.takeRecords());
+
+            shell.setAttribute('data-chatgpt-selection-message-id', 'assistant-2');
+            message.setAttribute('data-markdown-text-style', 'assistant-message');
+            (orchestrator as any).handleObservedMutations(observer.takeRecords());
+            (orchestrator as any).scanAndInject(new Set(['mutation']));
+
+            expect(incrementalScan).toHaveBeenCalled();
+            expect(fullScan).not.toHaveBeenCalled();
+            expect(shell.querySelectorAll('[data-aimd-role="message-toolbar"]')).toHaveLength(1);
+            expect(document.querySelectorAll('[data-aimd-role="message-toolbar"]')).toHaveLength(2);
+        } finally {
+            observer.disconnect();
+            orchestrator.dispose();
+        }
+    });
+
+    it('refreshes the latest toolbar when a page-level generation control ends', () => {
+        document.body.innerHTML = `
+          <div class="assistant-message" data-message-id="m1">
+            <div class="content">Completed answer</div>
+            <div class="official-toolbar"></div>
+          </div>
+          <button data-testid="stop-button">Stop</button>
+        `;
+
+        const adapter = new FakeScheduledToolbarAdapter();
+        const orchestrator = new MessageToolbarOrchestrator(adapter, {
+            readerPanel: { setTheme() {}, show: async () => undefined } as any,
+        });
+        attachScheduler(orchestrator);
+        (orchestrator as any).scanAndInject();
+        const record = Array.from((orchestrator as any).recordsByMessageKey.values())[0];
+        expect(record.pending).toBe(true);
+
+        const observer = new MutationObserver(() => undefined);
+        observer.observe(document.body, {
+            attributes: true,
+            attributeOldValue: true,
+            attributeFilter: ['data-testid'],
+            childList: true,
+            subtree: true,
+        });
+
+        try {
+            adapter.streaming = false;
+            document.querySelector<HTMLButtonElement>(GENERATION_CONTROL_SELECTOR)!
+                .setAttribute('data-testid', 'copy-turn-action-button');
+            (orchestrator as any).handleObservedMutations(observer.takeRecords());
+            (orchestrator as any).scanAndInject(new Set(['mutation']));
+
+            expect(record.pending).toBe(false);
         } finally {
             observer.disconnect();
             orchestrator.dispose();

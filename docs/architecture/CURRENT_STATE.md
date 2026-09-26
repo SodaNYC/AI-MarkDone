@@ -36,7 +36,7 @@
 > the DOM-only boundary.
 >
 > `pending-surface` is mounted host geometry, not accumulated content. A
-> non-streaming message with an official action row can mount its toolbar and
+> non-streaming message with stable assistant identity and non-empty content can mount its toolbar and
 > serve current-message Copy/Reader/Export or selection/annotation from live DOM
 > before Repository publication. It does not enter Directory or multi-message
 > output until its stable ID is admitted into proven pool order. The shared

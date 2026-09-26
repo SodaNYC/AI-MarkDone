@@ -254,19 +254,18 @@ Reader 的官方会话、detached Reader 和 bookmark preview 共用 `ReaderPane
 
 ### D.2 手工验收清单（在支持的平台上）
 
-- 刷新 / 切换对话 / 连续生成：每条已出现官方 action bar 的 assistant 消息最终出现工具栏（不重复、不漂移）；ChatGPT 官网中 action row 后 hydrate 时应局部推进对应消息状态，而不是常规触发整页补扫
+- 刷新 / 切换对话 / 连续生成：每条已完成且具有稳定 assistant identity 的消息最终出现工具栏（不重复、不漂移）；ChatGPT 官网中 identity 后置 hydrate 时应局部推进对应消息状态，而不是常规触发整页补扫
 - Copy Markdown：复制当前消息内容
 - Reader：打开/翻页/复制，关闭无残留
 - LaTeX click：可用且不影响用户选择/复制公式文本（selection guard 生效）
 # ChatGPT DOM discovery implementation note (2026-08-22)
 
 ChatGPT content discovery uses one `ChatGPTPageIndex` observer and one page-level
-debounce. Runtime initialization scans existing official action rows; relevant
-DOM mutations and `pageshow`/`resume`/visible lifecycle wakes scan again. A
-message is admitted only when it has an assistant message ID, non-empty
-assistant DOM, a connected official action row, and no active generation state.
-There is no fixed load deadline: a delayed official row triggers whenever it
-actually appears.
+debounce. Runtime initialization scans existing turns; relevant DOM mutations,
+including late semantic identity attributes, and `pageshow`/`resume`/visible
+lifecycle wakes scan again. A message is admitted when it has stable assistant
+identity, non-empty assistant DOM, and no active generation state. An official
+action row is not a content-readiness prerequisite.
 
 `ChatGPTConversationHostMonitor` clones the assistant root once and converts it
 through the existing Markdown Adapter once. `ConversationContentRepository`

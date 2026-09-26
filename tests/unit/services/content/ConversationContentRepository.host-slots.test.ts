@@ -153,6 +153,60 @@ describe('ConversationContentRepository persistent host slots', () => {
         expect(repository.read().snapshot?.contentToken).toBe(stableToken);
     });
 
+    it('merges virtualized windows with partial overlap while preserving both observed orders', () => {
+        const repository = new ConversationContentRepository({ resolveDocument: () => documentRef('virtualized-overlap') });
+        const initialSlots = ['slot-a', 'slot-b', 'slot-c', 'slot-d', 'slot-e'];
+        repository.ingestHostBatch([
+            observation(1, 'slot-a'),
+            observation(2, 'slot-b'),
+            observation(3, 'slot-c'),
+            observation(4, 'slot-d'),
+        ], initialSlots);
+
+        repository.ingestHostBatch([
+            observation(5, 'slot-x'),
+            observation(3, 'slot-c'),
+            observation(6, 'slot-y'),
+            observation(7, 'slot-z'),
+            observation(8, 'slot-w'),
+            observation(9, 'slot-v'),
+        ], ['slot-x', 'slot-c', 'slot-y', 'slot-z', 'slot-w', 'slot-v']);
+
+        const projectedIds = ids(repository);
+        expect(projectedIds).toEqual([
+            'assistant-1',
+            'assistant-2',
+            'assistant-5',
+            'assistant-3',
+            'assistant-6',
+            'assistant-7',
+            'assistant-8',
+            'assistant-9',
+            'assistant-4',
+        ]);
+        expect(projectedIds).toContain('assistant-9');
+        expect(repository.readTurn({
+            documentKey: documentRef('virtualized-overlap').key,
+            turnId: 'turn-9',
+            userMessageId: 'user-9',
+            assistantMessageId: 'assistant-9',
+        })).toMatchObject({
+            kind: 'ready',
+            turn: { assistantMarkdown: 'Answer 9' },
+        });
+    });
+
+    it('rejects disjoint host windows whose relative chronology cannot be established', () => {
+        const repository = new ConversationContentRepository({ resolveDocument: () => documentRef('disjoint-window') });
+        repository.ingestHostBatch([observation(1, 'slot-a')], ['slot-a', 'slot-b']);
+        const stableToken = repository.read().snapshot?.contentToken;
+
+        repository.ingestHostBatch([observation(2, 'slot-x')], ['slot-x', 'slot-y']);
+
+        expect(ids(repository)).toEqual(['assistant-1']);
+        expect(repository.read().snapshot?.contentToken).toBe(stableToken);
+    });
+
     it('rejects conflicting assistant-to-slot bindings without changing the snapshot', () => {
         const repository = new ConversationContentRepository({ resolveDocument: () => documentRef('binding-conflict') });
         repository.ingestHostBatch([observation(1)], ['assistant-slot-1', 'assistant-slot-2']);

@@ -115,9 +115,9 @@ UI 状态规则：
 
 ## 5. ChatGPT DOM content seam (page ↔ content runtime)
 
-ChatGPT 内容获取使用 Chrome/Firefox document-start 的 5.3-compatible page bridge 作为初始 source seed，但不新增 content ↔ background runtime message。Bridge 只观察宿主自身的 same-origin JSON conversation GET，并通过事件/bridge memory 暴露 `peek/readBaseline`；扩展不主动发起 conversation GET/POST。唯一 `ChatGPTPageIndex` observer 继续提供当前页面的 message identity、assistant root、official action row 与 generation 状态；`ChatGPTConversationHostMonitor` 在 Runtime 初始化、相关 DOM mutation 以及 `pageshow`、`resume`、重新 visible 时，通过一个页面级短防抖扫描。
+ChatGPT 内容获取使用 Chrome/Firefox document-start 的 5.3-compatible page bridge 作为初始 source seed，但不新增 content ↔ background runtime message。Bridge 只观察宿主自身的 same-origin JSON conversation GET，并通过事件/bridge memory 暴露 `peek/readBaseline`；扩展不主动发起 conversation GET/POST。唯一 `ChatGPTPageIndex` observer 继续提供当前页面的 semantic message identity、assistant root 与 generation 状态，并观察后置出现的 turn/message attributes；`ChatGPTConversationHostMonitor` 在 Runtime 初始化、相关 DOM mutation 以及 `pageshow`、`resume`、重新 visible 时，通过一个页面级短防抖扫描。Official action row 仅用于 toolbar placement，不作为内容 capture readiness 条件。
 
-assistant message ID、非空正文、已连接的官方操作栏和非生成状态同时满足后，Monitor clone 正文一次并通过现有 Markdown Adapter 转换一次，再按 assistant message ID 写入 `ConversationContentRepository`。官方操作栏只是完成和挂载触发信号，不是正文来源。相同正文幂等忽略，变化正文覆盖；DOM 被虚拟化移除不删除已入池内容。
+assistant message ID、非空正文和非生成状态满足后，Monitor clone 正文一次并通过现有 Markdown Adapter 转换一次，再按 assistant message ID 写入 `ConversationContentRepository`。Official action row 不是内容 readiness 条件或正文来源。相同正文幂等忽略，变化正文覆盖；DOM 被虚拟化移除不删除已入池内容。
 
 Repository 在当前标签页内维护 `Map<conversationKey, ConversationPool>`，SPA 切换只切换 active pool，返回旧会话时恢复旧池并用当前 DOM 更新。页面刷新或 content Runtime 重建后池自然清空。内容以稳定 `assistantMessageId` 为键；GET `mapping/current_node` 顺序是 provisional source order，DOM 提供的外层 stable-ID slot sequence 在 identity overlap 后成为最终顺序，不按 UUID 或会动态重编号的 `conversation-turn-N` 排序。完全无重叠的窗口先按 ID 暂存，出现冲突证据后拒绝该批次。普通 DOM capture 的 `historyStatus` 为 `partial`，GET seed 为 `get`；空 `?message=` 只创建官方导航骨架，不触发逐 slot sweep，新增槽位会降回 `get` 或 `partial`。内容链路没有主动 conversation 请求、轮询、逐消息计时器、Settings retry 或第二 Repository。
 

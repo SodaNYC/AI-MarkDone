@@ -244,19 +244,12 @@ export class ConversationContentRepository implements ConversationContentSourceV
         const previousSlotOrder = pool.slotOrder;
         const previousHistoryStatus = pool.historyStatus;
         const normalizedObservedHostSlotOrder = normalizeSlotOrder(observedHostSlotOrder);
-        if (
-            previousSlotOrder.length > 0
-            && normalizedObservedHostSlotOrder.length > 0
-            && !sameStringSequence(previousSlotOrder, normalizedObservedHostSlotOrder)
-            && !containsContiguousSequence(normalizedObservedHostSlotOrder, previousSlotOrder)
-            && !containsContiguousSequence(previousSlotOrder, normalizedObservedHostSlotOrder)
-        ) {
-            return this.state;
-        }
-
         const nextSlotOrder = reconcileHostSlotOrder(previousSlotOrder, normalizedObservedHostSlotOrder);
-        const topologyExpanded = nextSlotOrder.length > previousSlotOrder.length;
-        const knownSlots = new Set(nextSlotOrder);
+        if (!nextSlotOrder) return this.state;
+
+        const reconciledSlotOrder = nextSlotOrder;
+        const topologyExpanded = reconciledSlotOrder.length > previousSlotOrder.length;
+        const knownSlots = new Set(reconciledSlotOrder);
         const pendingObservations: Array<{
             turn: ConversationTurnV1;
             hostSlotId: string;
@@ -308,15 +301,15 @@ export class ConversationContentRepository implements ConversationContentSourceV
         for (const observation of pendingObservations) {
             nextAssistantBySlot.set(observation.hostSlotId, observation.assistantMessageId);
         }
-        const nextDomAssistantOrder = readDomAssistantOrder(pool, nextAssistantBySlot, nextSlotOrder);
-        if (!isOrderCompatibleWithDom(pool, pool.sourceOrder, nextAssistantBySlot, nextSlotOrder)) {
+        const nextDomAssistantOrder = readDomAssistantOrder(pool, nextAssistantBySlot, reconciledSlotOrder);
+        if (!isOrderCompatibleWithDom(pool, pool.sourceOrder, nextAssistantBySlot, reconciledSlotOrder)) {
             // Source order is provisional. Once DOM proves a conflicting
             // relative order, keep the same pool but let DOM become the order
             // authority and reinsert source-only turns around that evidence.
             pool.sourceOrder = mergeProjectionOrder(pool.sourceOrder, nextDomAssistantOrder);
         }
 
-        pool.slotOrder = nextSlotOrder;
+        pool.slotOrder = reconciledSlotOrder;
         for (const observation of pendingObservations) {
             const { turn: incoming, hostSlotId, assistantMessageId, digest } = observation;
             pool.domObservedAssistantIds.add(assistantMessageId);
@@ -622,13 +615,42 @@ function normalizeSlotOrder(order: readonly string[]): readonly string[] {
 function reconcileHostSlotOrder(
     existingOrder: readonly string[],
     observedOrder: readonly string[],
-): readonly string[] {
+): readonly string[] | null {
     const observed = normalizeSlotOrder(observedOrder);
     if (observed.length === 0 || sameStringSequence(existingOrder, observed)) return existingOrder;
     if (existingOrder.length === 0) return observed;
     if (containsContiguousSequence(observed, existingOrder)) return observed;
     if (containsContiguousSequence(existingOrder, observed)) return existingOrder;
-    return existingOrder;
+
+    const existingSlots = new Set(existingOrder);
+    const observedSlots = new Set(observed);
+    const sharedObserved = observed.filter((slotId) => existingSlots.has(slotId));
+    const sharedExisting = existingOrder.filter((slotId) => observedSlots.has(slotId));
+    if (sharedObserved.length === 0 || !sameStringSequence(sharedExisting, sharedObserved)) return null;
+
+    // Virtualized hosts expose partial windows; merge around shared slots without losing either observed order.
+    const merged = [...existingOrder];
+    const sharedIndexes = sharedObserved.map((slotId) => observed.indexOf(slotId));
+    const firstSharedIndex = sharedIndexes[0];
+    const firstSharedSlot = sharedObserved[0];
+    const prefix = observed.slice(0, firstSharedIndex);
+    if (prefix.length > 0) {
+        merged.splice(merged.indexOf(firstSharedSlot), 0, ...prefix);
+    }
+
+    for (let index = 0; index < sharedObserved.length - 1; index += 1) {
+        const between = observed.slice(sharedIndexes[index] + 1, sharedIndexes[index + 1]);
+        if (between.length === 0) continue;
+        merged.splice(merged.indexOf(sharedObserved[index + 1]), 0, ...between);
+    }
+
+    const lastSharedIndex = sharedIndexes[sharedIndexes.length - 1];
+    const suffix = observed.slice(lastSharedIndex + 1);
+    if (suffix.length > 0) {
+        const lastSharedSlot = sharedObserved[sharedObserved.length - 1];
+        merged.splice(merged.indexOf(lastSharedSlot) + 1, 0, ...suffix);
+    }
+    return Object.freeze(merged);
 }
 
 function containsContiguousSequence(haystack: readonly string[], needle: readonly string[]): boolean {
