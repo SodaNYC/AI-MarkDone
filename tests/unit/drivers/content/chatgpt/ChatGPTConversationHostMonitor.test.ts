@@ -67,6 +67,19 @@ function semanticRoundHtml(index: number, answer: string): string {
     `;
 }
 
+function semanticAssistantOnlyHtml(index: number, answer: string): string {
+    return `
+        <div data-turn-key="slot-${index}">
+            <div data-content-search-turn-key="round-${index}">
+                <div data-content-search-unit-key="assistant-unit-${index}"
+                    data-chatgpt-selection-message-id="assistant-${index}">
+                    <div data-markdown-text-style="assistant-message"><div>${answer}</div></div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function compiler(): RenderedContentCompilerV2 {
     return {
         compile: vi.fn(async (request) => {
@@ -232,6 +245,47 @@ describe('ChatGPTConversationHostMonitor DOM readiness', () => {
                 'Answer 1',
                 'Answer 2',
             ]);
+        } finally {
+            harness.dispose();
+        }
+    });
+
+    it('recaptures a semantic assistant when its user bubble remounts, then clears assistant-only state', async () => {
+        const main = document.querySelector('main')!;
+        main.innerHTML = semanticAssistantOnlyHtml(1, 'Answer 1');
+        const harness = createHarness('semantic-user-remount');
+
+        try {
+            harness.monitor.init();
+            await settle();
+            const initialToken = harness.repository.read().snapshot?.contentToken;
+            expect(harness.repository.read().snapshot?.turns[0]).toMatchObject({
+                userText: '',
+                assistantMarkdown: 'Answer 1',
+                identity: { userMessageId: null, assistantMessageId: 'assistant-1' },
+            });
+
+            main.querySelector('[data-content-search-turn-key]')!.insertAdjacentHTML('afterbegin', `
+                <div data-content-search-unit-key="user-unit-1">
+                    <div data-user-message-bubble>Question 1</div>
+                </div>
+            `);
+            await settle();
+
+            expect(harness.renderedCompiler.compile).toHaveBeenCalledTimes(2);
+            expect(harness.repository.read().snapshot?.turns[0]).toMatchObject({
+                userText: 'Question 1',
+                assistantMarkdown: 'Answer 1',
+                identity: { userMessageId: null, assistantMessageId: 'assistant-1' },
+            });
+            expect(harness.repository.read().snapshot?.contentToken).not.toBe(initialToken);
+
+            main.insertAdjacentHTML('beforeend', semanticRoundHtml(2, 'Answer 2'));
+            await settle();
+
+            expect(harness.renderedCompiler.compile).toHaveBeenCalledTimes(3);
+            expect(harness.repository.read().snapshot?.turns[0]?.userText).toBe('Question 1');
+            expect(harness.repository.read().snapshot?.turns[0]?.identity.assistantMessageId).toBe('assistant-1');
         } finally {
             harness.dispose();
         }

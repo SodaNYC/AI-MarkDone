@@ -153,7 +153,7 @@ export class ChatGPTConversationHostMonitor {
                 && this.wasCapturedAssistantOnly(normalized)
                 && this.options.index.getSnapshot().some((round) => {
                     const identity = resolveChatGPTDomRoundProjectionIdentity(round);
-                    return identity?.assistantMessageId === normalized && identity.userMessageId !== null;
+                    return identity?.assistantMessageId === normalized && round.source !== 'assistant-only';
                 });
             if (
                 normalized
@@ -261,10 +261,10 @@ export class ChatGPTConversationHostMonitor {
             successfulIds.add(assistantMessageId);
 
             this.rememberCaptured(documentKey, assistantMessageId);
-            if (observation.turn.identity.userMessageId) {
-                this.forgetAssistantOnlyCapture(documentKey, assistantMessageId);
-            } else {
+            if (round.source === 'assistant-only') {
                 this.rememberAssistantOnlyCapture(documentKey, assistantMessageId);
+            } else {
+                this.forgetAssistantOnlyCapture(documentKey, assistantMessageId);
             }
         }
 
