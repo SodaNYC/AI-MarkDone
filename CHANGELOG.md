@@ -5,6 +5,13 @@ All notable changes to AI-MarkDone will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.4.2] - 2026-09-26
+
+### Fixed
+- Restored AI-MarkDone compatibility with the ChatGPT Web UI rollout observed on 2026-09-25, including automatic toolbars for new replies and current-reply export.
+- Improved handling of semantic assistant messages and virtualized conversation windows, including user prompts that remount after their assistant reply.
+- Kept ambiguous or disjoint history windows from implying an unsupported global order while preserving export for an explicitly selected mounted message.
+
 ## [5.4.1] - 2026-08-26
 
 ### Added

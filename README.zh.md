@@ -8,7 +8,7 @@
     <a href="./LICENSE">
       <img src="https://img.shields.io/github/license/zhaoliangbin42/AI-MarkDone?label=License" alt="License">
     </a>
-    <img src="https://img.shields.io/badge/Version-5.4.1-10A37F" alt="Version 5.4.1">
+    <img src="https://img.shields.io/badge/Version-5.4.2-10A37F" alt="Version 5.4.2">
     </br>
     <img src="https://img.shields.io/badge/Browsers-Chrome%20%7C%20Firefox-10A37F" alt="Browsers">
     <img src="https://img.shields.io/badge/Primary%20Platform-ChatGPT-10A37F" alt="Primary Platform">
@@ -199,10 +199,11 @@ npm run build
 
 ## 📅 最新更新
 
-### 5.4.1
-- 增加 ChatGPT 页面右下角的消息全量加载功能。
-- 全量加载后，目录条、阅读器和导出功能共享同一份完整消息内容。
-- 修复导出消息不完整的问题（感谢小红书用户 @Elina 和 @忧郁的鳖老仔）。
+### 5.4.2
+- 修复 AI-MarkDone 与 2026 年 9 月 25 日开始推送的 ChatGPT 网页界面更新之间的兼容问题。
+- 新生成的回复无需刷新页面即可显示工具栏，并可直接导出当前回复。
+- 改进对语义消息和虚拟化对话窗口的支持，包括回复后重新挂载的用户提示词。
+- 当历史窗口顺序无法可靠确定时，不推断全局顺序；仍可导出明确选中的已挂载消息。
 
 [完整更新日志](./CHANGELOG.md)
 [版本说明](./RELEASE_NOTES.md)

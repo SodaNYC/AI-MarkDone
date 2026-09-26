@@ -1,5 +1,14 @@
 # Release Notes
 
+## v5.4.2 (2026-09-26)
+
+Restores compatibility with the ChatGPT Web UI rollout observed on 2026-09-25. New completed replies receive the AI-MarkDone toolbar without a page refresh, and the current reply can be exported from ChatGPT's semantic, virtualized message layout.
+
+### Fixed
+- Restored automatic toolbar mounting for newly completed assistant replies and current-message Export.
+- Improved support for semantic assistant identity and virtualized conversation windows, including prompts that remount after their reply.
+- Kept ambiguous history-window order unclaimed while allowing an explicitly selected mounted message to be exported.
+
 ## v5.4.1 (2026-08-26)
 
 This release adds an on-demand way to load all messages in a ChatGPT conversation. Click the action in the lower-right corner of the page after entering a conversation; the resulting message pool is shared by the directory, Reader, and export flows.

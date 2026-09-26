@@ -8,7 +8,7 @@
     <a href="./LICENSE">
       <img src="https://img.shields.io/github/license/zhaoliangbin42/AI-MarkDone?label=License" alt="License">
     </a>
-    <img src="https://img.shields.io/badge/Version-5.4.1-10A37F" alt="Version 5.4.1">
+    <img src="https://img.shields.io/badge/Version-5.4.2-10A37F" alt="Version 5.4.2">
     </br>
     <img src="https://img.shields.io/badge/Browsers-Chrome%20%7C%20Firefox-10A37F" alt="Browsers">
     <img src="https://img.shields.io/badge/Primary%20Platform-ChatGPT-10A37F" alt="Primary Platform">
@@ -200,10 +200,11 @@ npm run build
 
 ## 📅 Changelog (Latest)
 
-### 5.4.1
-- Added an on-demand full-message loading action in the lower-right corner of ChatGPT pages.
-- Directory, Reader, and export now share the same complete message pool after loading is triggered.
-- Fixed incomplete multi-message exports. Thanks to Xiaohongshu users @Elina and @忧郁的鳖老仔.
+### 5.4.2
+- Restored AI-MarkDone compatibility with ChatGPT's September 25, 2026 web UI update.
+- New completed replies show the toolbar without a page refresh, and the current reply can be exported.
+- Improved support for semantic messages and virtualized conversations, including prompts that remount after their replies.
+- Export remains available for an explicitly selected mounted reply when history windows cannot be safely ordered.
 
 [Full Changelog](./CHANGELOG.md)
 [Release Notes](./RELEASE_NOTES.md)
